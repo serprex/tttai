@@ -2,8 +2,8 @@ extern crate rand;
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::io::{self, Read};
-use rand::Rng;
+use std::io;
+use rand::{thread_rng, Rng, Rand};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 enum Spot {
@@ -16,42 +16,114 @@ enum GameResult {
 }
 
 trait Player {
-	fn mv(&mut self, [Spot; 9]) -> usize;
+	fn mv(&mut self, [Spot; 9]) -> u8;
+	fn feedback(&mut self, i32) -> () {}
 }
 
 struct Ai<R: Rng> {
 	rng: R,
-	lut: HashMap<[Spot; 9], [(u32, u32); 9]>,
+	lut: HashMap<[Spot; 9], [[u32; 2]; 9]>,
 	choices: Vec<([Spot; 9], u8)>,
 }
 
 impl<R: Rng> Ai<R> {
-	pub fn new(rng: R) -> Ai<R> {
+	pub fn new(rng: R) -> Self {
 		Ai {
 			rng: rng,
 			lut: Default::default(),
 			choices: Default::default(),
 		}
 	}
-	pub fn feedback(&mut self, won: bool) {
+}
+
+struct RngAi<R: Rng> {
+	rng: R,
+}
+
+impl<R: Rng> RngAi<R> {
+	pub fn new(rng: R) -> Self {
+		RngAi {
+			rng: rng,
+		}
+	}
+}
+
+struct Human;
+impl Player for Human {
+	fn mv(&mut self, b: [Spot; 9]) -> u8 {
+		prgame(b);
+		let stdin = io::stdin();
+		let mut line = String::new();
+		stdin.read_line(&mut line);
+		return match line.trim().parse::<u8>() {
+			Ok(i) if i<9 => i,
+			_ => self.mv(b),
+		}
+	}
+}
+
+fn prgame(b: [Spot; 9]) -> () {
+	let mut out = String::new();
+	for (i, &spot) in b.iter().enumerate() {
+		out.push(match spot {
+			Spot::O => 'O',
+			Spot::X => 'X',
+			Spot::A => '-',
+		});
+		if i%3 == 2 { out.push('\n') }
+	}
+	print!("{}", out)
+}
+
+impl<R: Rng> Player for Ai<R> {
+	fn mv(&mut self, b: [Spot; 9]) -> u8 {
+		let ent = self.lut.entry(b);
+		let choice = match ent {
+			Entry::Occupied(val) => {
+				let mut max = isize::min_value();
+				let mut maxi: [u8; 9] = Default::default();
+				let mut mxidx = 0;
+				for (i, wl) in val.get().iter().enumerate() {
+					if b[i] != Spot::A { continue }
+					let w = (wl[0] as isize) - (wl[1] as isize);
+					if w > max {
+						max = w;
+						maxi[0] = i as u8;
+						mxidx = 1;
+					} else if w+3 > max {
+						maxi[mxidx] = i as u8;
+						mxidx += 1;
+					}
+				}
+				*self.rng.choose(&maxi[..mxidx]).unwrap_or(&0)
+			},
+			Entry::Vacant(val) => {
+				val.insert(Default::default());
+				for (i, &spot) in b.iter().enumerate() {
+					if spot == Spot::A { return i as u8 }
+				}
+				0
+			}
+		};
+		self.choices.push((b, choice as u8));
+		choice
+	}
+	fn feedback(&mut self, scale: i32) {
+		if scale == 0 {
+			return self.choices.clear()
+		}
+		let cidx = if scale > 0 { 0 } else { 1 };
+		let scale = scale.abs() as u32;
 		for (key, choice) in self.choices.drain(0..) {
 			let ent = self.lut.entry(key);
 			match ent {
 				Entry::Occupied(mut val) => {
 					let mut newval = val.get_mut();
-					if won {
-						newval[choice as usize].0 += 1;
-					} else {
-						newval[choice as usize].1 += 1;
-					}
+					newval[choice as usize][cidx] += scale;
 				},
 				Entry::Vacant(val) => {
-					let mut newval: [(u32, u32); 9] = Default::default();
-					if won {
-						newval[choice as usize].0 = 1;
-					} else {
-						newval[choice as usize].1 = 1;
-					}
+					let mut newval: [[u32; 2]; 9] = Default::default();
+					newval[choice as usize][cidx] = scale;
 					val.insert(newval);
 				},
 			}
@@ -59,73 +131,17 @@ impl<R: Rng> Ai<R> {
 	}
 }
 
-struct Human;
-impl Player for Human {
-	fn mv(&mut self, b: [Spot; 9]) -> usize {
-		prgame(b);
-		let stdin = io::stdin();
-		let mut line = String::new();
-		stdin.read_line(&mut line);
-		return match line.trim().parse::<usize>() {
-			Ok(i) if i<9 => i,
-			_ => self.mv(b),
-		}
-	}
-}
-
-fn sigmoid(x: f64) -> f64 {
-	1.0 / (1.0 + (-x).exp())
-}
-
-fn wilson(up: f64, total: f64) -> f64 {
-	/*let z = 2.326348;
-	let z2 = z*z;
-	let phat = up/total;
-	(phat + z2/(2.0*total) - z*((phat*(1.0-phat)+z2/(4.0*total))/total).sqrt())/(1.0+z2/total)*/
-	up - (total-up)
-}
-
-fn prgame(b: [Spot; 9]) -> () {
-	for (i, &spot) in b.iter().enumerate() {
-		print!("{}", match spot {
-			Spot::O => "O",
-			Spot::X => "X",
-			Spot::A => "-",
-		});
-		if i%3 == 2 { println!("") }
-	}
-}
-
-impl<R: Rng> Player for Ai<R> {
-	fn mv(&mut self, b: [Spot; 9]) -> usize {
-		let ent = self.lut.entry(b);
-		let choice = match ent {
-			Entry::Occupied(val) => {
-				let mut max = -1.0/0.0;
-				let mut maxi: Vec<usize> = Vec::new();
-				for (i, &(win, loss)) in val.get().iter().enumerate() {
-					let w = wilson(win as f64, (win+loss) as f64);
-					if w > max {
-						max = w;
-						maxi.clear();
-					}
-					if w == max {
-						maxi.push(i);
-					}
-				}
-				println!("{:?} {} {:?}", maxi, max, val.get());
-				*self.rng.choose(&maxi).unwrap_or(&0)
-			},
-			Entry::Vacant(val) => {
-				val.insert([(0, 0); 9]);
-				for (i, &spot) in b.iter().enumerate() {
-					if spot == Spot::A { return i }
-				}
-				0
+impl<R: Rng> Player for RngAi<R> {
+	fn mv(&mut self, b: [Spot; 9]) -> u8 {
+		let mut icand: [u8; 9] = Default::default();
+		let mut icanlen: usize = 0;
+		for (i, &spot) in b.iter().enumerate() {
+			if spot == Spot::A {
+				icand[icanlen] = i as u8;
+				icanlen += 1;
 			}
-		};
-		self.choices.push((b, choice as u8));
-		choice
+		}
+		*self.rng.choose(&icand[..icanlen]).unwrap_or(&0)
 	}
 }
 
@@ -157,17 +173,20 @@ fn play<P1, P2>(p1: &mut P1, p2: &mut P2, mut player: bool, prwin: bool) -> Game
 	where P1: Player, P2: Player {
 	let mut game = [Spot::A; 9];
 	loop {
-		let mv = if player { p2.mv(game) } else { p1.mv(game) };
+		let mv = if player { p2.mv(game) } else { p1.mv(game) } as usize;
 		if mv > 8 || game[mv] != Spot::A {
-			prgame(game);
+			if prwin {
+				println!("Illegal move forfeit");
+				prgame(game);
+			}
 			return if player { GameResult::X } else { GameResult::O }
 		}
 		game[mv] = Spot::X;
 		let winner = x_wins(&game);
 		if winner != GameResult::A {
-			//if prwin {
+			if prwin {
 				prgame(game);
-			//}
+			}
 			return if winner == GameResult::X {
 				if player { GameResult::O } else { GameResult::X }
 			} else { winner }
@@ -178,38 +197,47 @@ fn play<P1, P2>(p1: &mut P1, p2: &mut P2, mut player: bool, prwin: bool) -> Game
 }
 
 fn main() {	
-	let mut ai1 = Ai::new(rand::XorShiftRng::new_unseeded());
-	let mut ai2 = Ai::new(rand::XorShiftRng::new_unseeded());
-	let mut first = false;
+	let mut trng = thread_rng();
+	let mut rng = rand::XorShiftRng::rand(&mut trng);
+	let mut ai1 = Ai::new(rand::XorShiftRng::rand(&mut trng));
+	let mut ai2 = Ai::new(rand::XorShiftRng::rand(&mut trng));
+	let mut ai3 = RngAi::new(rand::XorShiftRng::rand(&mut trng));
 	let mut games: usize = 0;
+	let mut totgames: usize = 0;
 	loop {
+		let first = rng.gen::<bool>();
 		if games == 0 {
 			println!("{} begins", if first { 'O' } else { 'X' });
 		}
-		let winner = play(&mut ai1, &mut ai2, first, games == 0);
+		let winner = if totgames%400000 == 0 {
+			play(&mut ai1, &mut Human, first, false)
+		} else if games&4 == 1 {
+			play(&mut ai1, &mut ai3, first, games == 0)
+		} else {
+			play(&mut ai1, &mut ai2, first, games == 0)
+		};
 		match winner {
 			GameResult::X => {
-				ai1.feedback(true);
-				ai1.feedback(true);
-				ai2.feedback(false);
-				ai2.feedback(false);
-				if true || games == 0 { println!("X wins") }
+				ai1.feedback(2);
+				ai2.feedback(-2);
+				if games == 0 { println!("X wins") }
 			},
 			GameResult::O => {
-				ai2.feedback(true);
-				ai2.feedback(true);
-				ai1.feedback(false);
-				ai1.feedback(false);
-				if true || games == 0 { println!("O wins") }
+				ai2.feedback(-2);
+				ai1.feedback(2);
+				if games == 0 { println!("O wins") }
 			},
 			GameResult::OX => {
-				ai1.feedback(true);
-				ai2.feedback(true);
-				if true || games == 0 { println!("Draw") }
+				ai1.feedback(1);
+				ai2.feedback(1);
+				if games == 0 { println!("Draw") }
 			},
 			GameResult::A => unreachable!()
 		}
-		games = if games == 1000 { 0 } else { games+1 };
-		first ^= true;
+		totgames += 1;
+		games = if games == 9999 {
+			println!("{} games in", totgames);
+			0
+		} else { games+1 };
 	}
 }
