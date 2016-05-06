@@ -36,6 +36,22 @@ impl<R: Rng> Ai<R> {
 	}
 }
 
+struct Ai2<R: Rng> {
+	rng: R,
+	lut: HashMap<[Spot; 9], [u32; 2]>,
+	choices: Vec<[Spot; 9]>,
+}
+
+impl<R: Rng> Ai2<R> {
+	pub fn new(rng: R) -> Self {
+		Ai2 {
+			rng: rng,
+			lut: Default::default(),
+			choices: Default::default(),
+		}
+	}
+}
+
 struct RngAi<R: Rng> {
 	rng: R,
 }
@@ -131,6 +147,53 @@ impl<R: Rng> Player for Ai<R> {
 	}
 }
 
+impl<R: Rng> Player for Ai2<R> {
+	fn mv(&mut self, b: [Spot; 9]) -> u8 {
+		let mut max = isize::min_value();
+		let mut maxi: [u8; 9] = Default::default();
+		let mut mxidx: usize = 0;
+		for (i, &spot) in b.iter().enumerate() {
+			if spot == Spot::A {
+				let mut newb = b;
+				newb[i] = Spot::X;
+				let wl = *self.lut.get(&newb).unwrap_or(&[0, 0]);
+				let w = (wl[0] as isize) - (wl[1] as isize);
+				if w > max {
+					max = w;
+					maxi[0] = i as u8;
+					mxidx = 1;
+				} else if w+3 > max {
+					maxi[mxidx] = i as u8;
+					mxidx += 1;
+				}
+			}
+		}
+		*self.rng.choose(&maxi[..mxidx]).unwrap_or(&0)
+	}
+
+	fn feedback(&mut self, scale: i32) -> () {
+		if scale == 0 {
+			return self.choices.clear()
+		}
+		let cidx = if scale > 0 { 0 } else { 1 };
+		let scale = scale.abs() as u32;
+		for key in self.choices.drain(0..) {
+			let ent = self.lut.entry(key);
+			match ent {
+				Entry::Occupied(mut val) => {
+					let mut newval = val.get_mut();
+					newval[cidx] += scale;
+				},
+				Entry::Vacant(val) => {
+					let mut newval: [u32; 2] = Default::default();
+					newval[cidx] = scale;
+					val.insert(newval);
+				},
+			}
+		}
+	}
+}
+
 impl<R: Rng> Player for RngAi<R> {
 	fn mv(&mut self, b: [Spot; 9]) -> u8 {
 		let mut icand: [u8; 9] = Default::default();
@@ -200,7 +263,7 @@ fn main() {
 	let mut trng = thread_rng();
 	let mut rng = XorShiftRng::rand(&mut trng);
 	let mut ai1 = Ai::new(XorShiftRng::rand(&mut trng));
-	let mut ai2 = Ai::new(XorShiftRng::rand(&mut trng));
+	let mut ai2 = Ai2::new(XorShiftRng::rand(&mut trng));
 	let mut ai3 = RngAi::new(XorShiftRng::rand(&mut trng));
 	let mut games: usize = 0;
 	let mut totgames: usize = 1;
@@ -208,11 +271,11 @@ fn main() {
 		let first = rng.gen::<bool>();
 		let wentfirst = if first { 'O' } else { 'X' };
 		let winner = if totgames%400000 == 0 {
-			play(&mut ai1, &mut Human, first, false)
+			play(&mut ai2, &mut Human, first, false)
 		} else if games&4 == 1 {
-			play(&mut ai1, &mut ai3, first, games == 0)
+			play(&mut ai2, &mut ai3, first, games == 0)
 		} else {
-			play(&mut ai1, &mut ai2, first, games == 0)
+			play(&mut ai2, &mut ai1, first, games == 0)
 		};
 		match winner {
 			GameResult::X => {
