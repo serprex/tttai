@@ -3,7 +3,7 @@ extern crate rand;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::io;
-use rand::{thread_rng, Rng, Rand};
+use rand::{thread_rng, Rng, Rand, XorShiftRng};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 enum Spot {
@@ -12,7 +12,7 @@ enum Spot {
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 enum GameResult {
-	O, X, A, OX
+	O, X, OX
 }
 
 trait Player {
@@ -165,7 +165,7 @@ fn x_wins(b: &[Spot; 9]) -> GameResult {
 		(_, _, Spot::X, _, _, Spot::X, _, _, Spot::X) |
 		(Spot::X, _, _, _, Spot::X, _, _, _, Spot::X) |
 		(_, _, Spot::X, _, Spot::X, _, Spot::X, _, _) => GameResult::X,
-		_ => if b.contains(&Spot::A) { GameResult::A } else { GameResult::OX },
+		_ => if b.contains(&Spot::A) { GameResult::O } else { GameResult::OX },
 	}
 }
 
@@ -183,7 +183,7 @@ fn play<P1, P2>(p1: &mut P1, p2: &mut P2, mut player: bool, prwin: bool) -> Game
 		}
 		game[mv] = Spot::X;
 		let winner = x_wins(&game);
-		if winner != GameResult::A {
+		if winner != GameResult::O {
 			if prwin {
 				prgame(game);
 			}
@@ -198,17 +198,15 @@ fn play<P1, P2>(p1: &mut P1, p2: &mut P2, mut player: bool, prwin: bool) -> Game
 
 fn main() {	
 	let mut trng = thread_rng();
-	let mut rng = rand::XorShiftRng::rand(&mut trng);
-	let mut ai1 = Ai::new(rand::XorShiftRng::rand(&mut trng));
-	let mut ai2 = Ai::new(rand::XorShiftRng::rand(&mut trng));
-	let mut ai3 = RngAi::new(rand::XorShiftRng::rand(&mut trng));
+	let mut rng = XorShiftRng::rand(&mut trng);
+	let mut ai1 = Ai::new(XorShiftRng::rand(&mut trng));
+	let mut ai2 = Ai::new(XorShiftRng::rand(&mut trng));
+	let mut ai3 = RngAi::new(XorShiftRng::rand(&mut trng));
 	let mut games: usize = 0;
-	let mut totgames: usize = 0;
+	let mut totgames: usize = 1;
 	loop {
 		let first = rng.gen::<bool>();
-		if games == 0 {
-			println!("{} begins", if first { 'O' } else { 'X' });
-		}
+		let wentfirst = if first { 'O' } else { 'X' };
 		let winner = if totgames%400000 == 0 {
 			play(&mut ai1, &mut Human, first, false)
 		} else if games&4 == 1 {
@@ -220,19 +218,18 @@ fn main() {
 			GameResult::X => {
 				ai1.feedback(2);
 				ai2.feedback(-2);
-				if games == 0 { println!("X wins") }
+				if games == 0 { println!("X wins, {}", wentfirst) }
 			},
 			GameResult::O => {
 				ai2.feedback(-2);
 				ai1.feedback(2);
-				if games == 0 { println!("O wins") }
+				if games == 0 { println!("O wins, {}", wentfirst) }
 			},
 			GameResult::OX => {
 				ai1.feedback(1);
 				ai2.feedback(1);
-				if games == 0 { println!("Draw") }
+				if games == 0 { println!("Draw, {}", wentfirst) }
 			},
-			GameResult::A => unreachable!()
 		}
 		totgames += 1;
 		games = if games == 9999 {
