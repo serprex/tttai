@@ -6,8 +6,8 @@ use engine::*;
 
 pub struct Ai<R: Rng> {
 	rng: R,
-	lut: HashMap<[Spot; 9], [[u32; 2]; 9]>,
-	choices: Vec<([Spot; 9], u8)>,
+	lut: HashMap<Game, [[u32; 2]; 9]>,
+	choices: Vec<(Game, u8)>,
 }
 
 impl<R: Rng> Ai<R> {
@@ -22,8 +22,8 @@ impl<R: Rng> Ai<R> {
 
 pub struct Ai2<R: Rng> {
 	rng: R,
-	lut: HashMap<[Spot; 9], [u32; 2]>,
-	choices: Vec<[Spot; 9]>,
+	lut: HashMap<Game, [u32; 2]>,
+	choices: Vec<Game>,
 }
 
 impl<R: Rng> Ai2<R> {
@@ -50,8 +50,8 @@ impl<R: Rng> RngAi<R> {
 
 pub struct Human;
 impl Player for Human {
-	fn mv(&mut self, b: [Spot; 9]) -> u8 {
-		prgame(b);
+	fn mv(&mut self, b: Game) -> u8 {
+		b.prgame();
 		let stdin = io::stdin();
 		let mut line = String::new();
 		stdin.read_line(&mut line);
@@ -63,15 +63,15 @@ impl Player for Human {
 }
 
 impl<R: Rng> Player for Ai<R> {
-	fn mv(&mut self, b: [Spot; 9]) -> u8 {
+	fn mv(&mut self, b: Game) -> u8 {
 		let ent = self.lut.entry(b);
 		let choice = match ent {
 			Entry::Occupied(val) => {
 				let mut max = isize::min_value();
 				let mut maxi: [u8; 9] = Default::default();
 				let mut mxidx = 0;
-				for (i, wl) in val.get().iter().enumerate() {
-					if b[i] != Spot::A { continue }
+				for (i, wl) in val.get().into_iter().enumerate() {
+					if b.get(i as u8) != Spot::A { continue }
 					let w = (wl[0] as isize) - (wl[1] as isize);
 					if w > max {
 						max = w;
@@ -86,7 +86,7 @@ impl<R: Rng> Player for Ai<R> {
 			},
 			Entry::Vacant(val) => {
 				val.insert(Default::default());
-				for (i, &spot) in b.iter().enumerate() {
+				for (i, spot) in b.into_iter().enumerate() {
 					if spot == Spot::A { return i as u8 }
 				}
 				0
@@ -119,22 +119,23 @@ impl<R: Rng> Player for Ai<R> {
 }
 
 impl<R: Rng> Player for Ai2<R> {
-	fn mv(&mut self, b: [Spot; 9]) -> u8 {
+	fn mv(&mut self, b: Game) -> u8 {
 		let mut max = isize::min_value();
 		let mut maxi: [u8; 9] = Default::default();
 		let mut mxidx: usize = 0;
-		for (i, &spot) in b.iter().enumerate() {
+		for (i, spot) in b.into_iter().enumerate() {
+			let i = i as u8;
 			if spot == Spot::A {
 				let mut newb = b;
-				newb[i] = Spot::X;
+				newb.set(i, Spot::X);
 				let wl = *self.lut.get(&newb).unwrap_or(&[0, 0]);
 				let w = (wl[0] as isize) - (wl[1] as isize);
 				if w > max {
 					max = w;
-					maxi[0] = i as u8;
+					maxi[0] = i;
 					mxidx = 1;
 				} else if w+3 > max {
-					maxi[mxidx] = i as u8;
+					maxi[mxidx] = i;
 					mxidx += 1;
 				}
 			}
@@ -166,10 +167,10 @@ impl<R: Rng> Player for Ai2<R> {
 }
 
 impl<R: Rng> Player for RngAi<R> {
-	fn mv(&mut self, b: [Spot; 9]) -> u8 {
+	fn mv(&mut self, b: Game) -> u8 {
 		let mut icand: [u8; 9] = Default::default();
 		let mut icanlen: usize = 0;
-		for (i, &spot) in b.iter().enumerate() {
+		for (i, spot) in b.into_iter().enumerate() {
 			if spot == Spot::A {
 				icand[icanlen] = i as u8;
 				icanlen += 1;
