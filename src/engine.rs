@@ -1,8 +1,9 @@
 use std::iter::{IntoIterator, Iterator};
+use std::mem;
 
 pub trait Player {
 	fn mv(&mut self, Game) -> u8;
-	fn feedback(&mut self, i32) -> () {}
+	fn feedback(&mut self, _: bool, _: u32, _: &[Game]) -> () {}
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -12,7 +13,7 @@ pub enum Spot {
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub enum GameResult {
-	X, O, OX
+	X, O, A
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
@@ -93,31 +94,51 @@ impl Game {
 			(self.0 & 0x30303) == 0 ||
 			(self.0 & 0x3330) == 0 { GameResult::X }
 		else if self.into_iter().any(|x| x == Spot::A) { GameResult::O }
-		else { GameResult::OX }
+		else { GameResult::A }
 	}
 }
 
-pub fn play<P1, P2>(p1: &mut P1, p2: &mut P2, mut player: bool, prwin: bool) -> GameResult
+pub fn play<P1, P2>(p1: &mut P1, p2: &mut P2, mut player: bool, prwin: bool) -> ()
 	where P1: Player, P2: Player {
 	let mut game = Game::new();
+	let mut choices: [Game; 9] = unsafe { mem::uninitialized() };
+	let mut cholen: usize = 0;
 	loop {
 		let mv = if player { p2.mv(game) } else { p1.mv(game) };
-		if mv > 8 || game.get(mv) != Spot::A {
-			if prwin {
-				println!("Illegal move forfeit");
-				game.prgame();
-			}
-			return if player { GameResult::X } else { GameResult::O }
-		}
-		game.set(mv, Spot::X);
-		let winner = game.x_wins();
+		let winner = if mv > 8 || game.get(mv) != Spot::A {
+			player ^= true;
+			GameResult::X
+		} else {
+			game.set(mv, Spot::X);
+			choices[cholen] = game;
+			cholen += 1;
+			game.x_wins()
+		};
 		if winner != GameResult::O {
+			let winner = if winner == GameResult::X {
+				if player { GameResult::O } else { GameResult::X }
+			} else { winner };
+			match winner {
+				GameResult::X => {
+					p1.feedback(true, 2, &choices[..cholen-1]);
+					p2.feedback(true, 2, &choices[..cholen-1]);
+					if prwin { println!("X wins") }
+				},
+				GameResult::O => {
+					p2.feedback(false, 2, &choices[..cholen-1]);
+					p1.feedback(false, 2, &choices[..cholen-1]);
+					if prwin { println!("O wins") }
+				},
+				GameResult::A => {
+					p1.feedback(true, 1, &choices[..cholen-1]);
+					p2.feedback(true, 1, &choices[..cholen-1]);
+					if prwin { println!("Draw") }
+				},
+			}
 			if prwin {
 				game.prgame();
 			}
-			return if winner == GameResult::X {
-				if player { GameResult::O } else { GameResult::X }
-			} else { winner }
+			return
 		}
 		game.flip_board();
 		player ^= true
