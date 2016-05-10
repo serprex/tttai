@@ -1,3 +1,4 @@
+use std::f32;
 use std::io;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -26,6 +27,21 @@ impl<R: Rng> RngAi<R> {
 	pub fn new(rng: R) -> Self {
 		RngAi {
 			rng: rng,
+		}
+	}
+}
+
+pub struct NeuralAi<R: Rng> {
+	rng: R,
+	lut: [[[f32; 3]; 9]; 9],
+}
+
+impl<R: Rng> NeuralAi<R> {
+	pub fn new(mut rng: R) -> Self {
+		let initial_state = rng.gen::<[[[f32; 3]; 9]; 9]>();
+		NeuralAi {
+			rng: rng,
+			lut: initial_state,
 		}
 	}
 }
@@ -105,5 +121,54 @@ impl<R: Rng> Player for RngAi<R> {
 			}
 		}
 		*self.rng.choose(&icand[..icanlen]).unwrap_or(&0)
+	}
+}
+
+impl<R: Rng> Player for NeuralAi<R> {
+	fn mv(&mut self, b: Game) -> u8 {
+		let mut votes: [f32; 9] = Default::default();
+		for (i, spot) in b.into_iter().enumerate() {
+			let spoti = match spot {
+				Spot::X => 0,
+				Spot::O => 1,
+				Spot::A => 2,
+			};
+			for j in 0..9 {
+				votes[j] += self.lut[i][j][if j == i { 0 } else { spoti }];
+			}
+		}
+		let mut max: [u8; 9] = Default::default();
+		let mut maxv: f32 = f32::NEG_INFINITY;
+		let mut mxlen: usize = 0;
+		for (ius, &vote) in votes.into_iter().enumerate() {
+			let i = ius as u8;
+			if b.get(i) == Spot::A {
+				if vote > maxv {
+					maxv = vote;
+					max[0] = i;
+					mxlen = 1;
+				} else if vote == maxv {
+					max[mxlen] = i;
+					mxlen += 1;
+				}
+			}
+		}
+		*self.rng.choose(&max[..mxlen]).unwrap_or(&0)
+	}
+
+	fn feedback(&mut self, mut good: bool, scale: u32, choices: &[Game]) -> () {
+		for &key in choices.iter() {
+			for (i, spot) in key.into_iter().enumerate() {
+				let spoti = match spot {
+					Spot::X => 0,
+					Spot::O => 1,
+					Spot::A => 2,
+				};
+				for j in 0..9 {
+					self.lut[i][j][spoti] += scale as f32 / if good { 16.0 } else { -16.0 };
+				}
+			}
+			good ^= true
+		}
 	}
 }

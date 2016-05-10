@@ -9,7 +9,7 @@ fn main() {
 	let mut trng = rand::thread_rng();
 	let mut rng = XorShiftRng::rand(&mut trng);
 	let mut ai1 = ai::Ai::new(XorShiftRng::rand(&mut trng));
-	let mut ai2 = ai::Ai::new(XorShiftRng::rand(&mut trng));
+	let mut ai2 = ai::NeuralAi::new(XorShiftRng::rand(&mut trng));
 	let mut ai3 = ai::RngAi::new(XorShiftRng::rand(&mut trng));
 	let mut games: usize = 0;
 	let mut totgames: usize = 1;
